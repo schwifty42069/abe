@@ -1,1 +1,2 @@
-#Abe - an IRC bot written in nodejs
+Abe - an IRC bot written in nodejs
+==================================
