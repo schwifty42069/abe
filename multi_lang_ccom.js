@@ -1,5 +1,6 @@
 'use strict';
 
+const config = require('config');
 const irc = require('irc');
 const request = require('then-request');
 const server = 'chat.freenode.net';
@@ -11,6 +12,14 @@ const port = 6697;
 const accepted_langs = ['python', 'js', 'php', 'c', 'bash'];
 const { exec } = require('child_process');
 let current_ccom_db = {};
+const jwt = require('jsonwebtoken');
+
+const token_data = config.get('token.token_data');
+const token_secret = config.get('token.token_secret');
+
+const token = jwt.sign({
+    data: token_data
+}, token_secret, {expiresIn: '6h'});
 
 class MultiLangCCOM {
 
@@ -74,16 +83,18 @@ class MultiLangCCOM {
         }
     }
 
+
+
     post_ccom() {
         request('POST', 'http://192.168.49.105:42069/ccoms', {json: {'lang': this.lang, 'name': this.name, 'author': this.user,
         'code': this.code, 'time': this.time }}).getBody('utf8').then(JSON.parse).done(function (res) {
-            console.log(res);
+            console.log({"res":res.code, "token": token});
         });
     }
 
     remove_ccom() {
         request('DELETE', `http://192.168.49.105:42069/ccoms/name/${this.name}`).done(function (res) {
-            console.log(res);
+            console.log({"res":res.code, "token": token});
         });
     }
 }

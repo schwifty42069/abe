@@ -5,7 +5,10 @@
   "main": "multi_lang_ccom.js",
   "dependencies": {
     "body-parser": "^1.19.0",
+    "config": "^3.2.5",
     "express": "^4.17.1",
+    "express-bearer-token": "^2.4.0",
+    "helmet": "^3.21.2",
     "irc": "^0.5.2",
     "mongoose": "^5.8.11",
     "then-request": "^6.0.2"
