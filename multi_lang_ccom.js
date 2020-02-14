@@ -11,15 +11,10 @@ const secure = true;
 const port = 6697;
 const accepted_langs = ['python', 'js', 'php', 'c', 'bash'];
 const { exec } = require('child_process');
-let current_ccom_db = {};
+let ccdb = {};
 const jwt = require('jsonwebtoken');
-
 const token_data = config.get('token.token_data');
 const token_secret = config.get('token.token_secret');
-
-const token = jwt.sign({
-    data: token_data
-}, token_secret, {expiresIn: '6h'});
 
 class MultiLangCCOM {
 
@@ -29,6 +24,7 @@ class MultiLangCCOM {
 		this.user = user;
 		this.code = code;
 		this.time = time;
+        this.token = this.generate_token();
         this.banned_patterns = {
             "python": ["import os", "import subprocess", "import ctypes", "__import__", "importlib"]
         }
@@ -83,18 +79,24 @@ class MultiLangCCOM {
         }
     }
 
-
+    generate_token() {
+        return jwt.sign({
+            data: token_data
+        }, token_secret, {expiresIn: '1h'});
+    }
 
     post_ccom() {
-        request('POST', 'http://192.168.49.105:42069/ccoms', {json: {'lang': this.lang, 'name': this.name, 'author': this.user,
-        'code': this.code, 'time': this.time }}).getBody('utf8').then(JSON.parse).done(function (res) {
-            console.log({"res":res.code, "token": token});
+        request('POST', 'http://192.168.49.105:42069/ccoms', {headers:{"authorization": this.token}}, {json: {'lang':
+        this.lang, 'name': this.name, 'author': this.user, 'code': this.code, 'time': this.time }}).getBody('utf8')
+        .then(JSON.parse).done(function (res) {
+            res.json({"res":res.code, "token": this.token});
         });
     }
 
     remove_ccom() {
-        request('DELETE', `http://192.168.49.105:42069/ccoms/name/${this.name}`).done(function (res) {
-            console.log({"res":res.code, "token": token});
+        request('DELETE', `http://192.168.49.105:42069/ccoms/name/${this.name}`,
+        {headers:{"authorization": this.token}}).done(function (res) {
+            res.json({"res":res.code, "token": this.token});
         });
     }
 }
@@ -115,7 +117,7 @@ class Bot extends irc.Client {
     fetch_ccom_db(){
         console.log("started fetching ccoms")
         request('GET', 'http://192.168.49.105:42069/ccoms').done(function(res) {
-            current_ccom_db = JSON.parse(res.getBody());
+            ccdb = JSON.parse(res.getBody());
         });
     }
 
@@ -128,8 +130,8 @@ class Bot extends irc.Client {
                 let lang = args[3];
                 for(let i = 4; i < args.length; i++) code += `${args[i]} `;
                 let mlcc = new MultiLangCCOM(lang, name, from, code, new Date);
-                for(let i = 0; i < current_ccom_db.length; i++) {
-                    if(current_ccom_db[i]['name'] == args[2]) {
+                for(let i = 0; i < ccdb.length; i++) {
+                    if(ccdb[i]['name'] == args[2]) {
                         this.say(channels[0], "A ccom with this name already exists");
                         return;
                     }
@@ -139,14 +141,14 @@ class Bot extends irc.Client {
                 console.log("Hit remove path...")
                 let name = args[2];
                 let author = from;
-                for(let i = 0; i < current_ccom_db.length; i++) {
-                    if(current_ccom_db[i]['name'] == name) {
-                        if(current_ccom_db[i]['author'] != author) {
+                for(let i = 0; i < ccdb.length; i++) {
+                    if(ccdb[i]['name'] == name) {
+                        if(ccdb[i]['author'] != author) {
                             this.say(channels[0], "you may not delete a ccom you didn't add!");
                             return;
                         }
-                        new MultiLangCCOM(current_ccom_db[i]['lang'], current_ccom_db[i]['name'], current_ccom_db[i]['user'],
-                        current_ccom_db[i]['code'], current_ccom_db[i]['time']).execute_ccom("del", this);
+                        new MultiLangCCOM(ccdb[i]['lang'], ccdb[i]['name'], ccdb[i]['user'],
+                        ccdb[i]['code'], ccdb[i]['time']).execute_ccom("del", this);
                         return;
                     }
                 }
@@ -155,11 +157,11 @@ class Bot extends irc.Client {
             }
         } else {
             this.fetch_ccom_db();
-            console.log(current_ccom_db);
-            for(let i = 0; i < current_ccom_db.length; i++) {
-                if(current_ccom_db[i]['name'] == args[0].substr(1, args[0].length)) {
-                    new MultiLangCCOM(current_ccom_db[i]['lang'], current_ccom_db[i]['name'], current_ccom_db[i]['user'],
-                    current_ccom_db[i]['code'], current_ccom_db[i]['time']).execute_ccom("run", this);
+            console.log(ccdb);
+            for(let i = 0; i < ccdb.length; i++) {
+                if(ccdb[i]['name'] == args[0].substr(1, args[0].length)) {
+                    new MultiLangCCOM(ccdb[i]['lang'], ccdb[i]['name'], ccdb[i]['user'],
+                    ccdb[i]['code'], ccdb[i]['time']).execute_ccom("run", this);
                 }
             }
         }

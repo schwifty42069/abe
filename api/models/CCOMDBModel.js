@@ -8,7 +8,8 @@ let Schema = mongoose.Schema;
 let CCOMDBSchema = new Schema({
     name: {
         type: String,
-        required: 'The ccom name is required'
+        required: 'The ccom name is required',
+        unique: true
     },
     lang: {
         type: String,

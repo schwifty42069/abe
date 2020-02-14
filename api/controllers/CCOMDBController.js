@@ -4,22 +4,17 @@ const config = require('config');
 const token_secret = config.get('token.token_secret');
 const mongoose = require('mongoose'),
 ml_ccom = mongoose.model('CCOMDB');
-
 const jwt = require('jsonwebtoken');
 
+// sorry duckgoose, used a synchronous call for jwt.verify, at least for now
 const verify = (req, res, next) => {
     try {
-        jwt.verify(req.headers.authorization, token_secret, function(err, verify) {
-            if(err) {
-                res.end({"msg": `Error: ${err}`});
-            } else {
-                console.log(verify);
-                next();
-            }
-        })
+        jwt.verify(req.headers.authorization, token_secret);
+        return true;
     } catch(error) {
-        // Don't know what's going on here
-        console.log(res);
+        res.status(401).json({"msg": `Error: ${error.message}`});
+        console.log("Caught error in controller");
+        return false;
     }
 }
 
@@ -39,7 +34,7 @@ exports.create_ccom = function(req, res) {
 };
 
 exports.get_ccom_by_name = function(req, res) {
-     ml_ccom.find({name: req.params.name}, verify, function(err, ccom) {
+     ml_ccom.find({name: req.params.name}, function(err, ccom) {
          if (err) res.send({'code': 400, 'data': err});
          res.json(ccom);
      });
@@ -67,8 +62,10 @@ exports.get_ccoms_by_lang = function(req, res) {
 };
 
 exports.delete_ccom = function(req, res) {
-    ml_ccom.remove({name: req.params.name}, verify, function(err, ccom) {
-        if (err) res.send({'code': 400, 'data': err});
-        res.json("Successfully removed ccom!");
-    });
-};
+    if (verify(req, res)) {
+        ml_ccom.deleteOne({name: req.params.name}, function(err, ccom) {
+            if (err) console.log({'code': 400, 'data': `Error occurred in delete_ccom: ${err}`});
+                console.log("Successfully removed ccom!");
+            });
+        }
+    }
