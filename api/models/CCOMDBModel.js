@@ -23,9 +23,9 @@ let CCOMDBSchema = new Schema({
         type: String,
         required: 'The author of the ccom is required'
     },
-    Created_date: {
-        type: Date,
-        default: Date.now
+    created_date: {
+        type: String,
+        default: new Date().toString()
     }
 });
 

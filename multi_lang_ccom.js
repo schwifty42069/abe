@@ -6,15 +6,16 @@ const request = require('then-request');
 const server = 'chat.freenode.net';
 const channels = ['#hlsvillage'];
 const nick = 'testytesterbot';
-const debug = true;
+const admins = config.get("admin.admins");
+const debug = false;
 const secure = true;
 const port = 6697;
 const accepted_langs = ['python', 'js', 'php', 'c', 'bash'];
 const { exec } = require('child_process');
-let ccdb = {};
 const jwt = require('jsonwebtoken');
-const token_data = config.get('token.token_data');
 const token_secret = config.get('token.token_secret');
+const esc = require('escapeshellarg');
+let ccdb = {};
 
 class MultiLangCCOM {
 
@@ -24,32 +25,45 @@ class MultiLangCCOM {
 		this.user = user;
 		this.code = code;
 		this.time = time;
-        this.token = this.generate_token();
+        this.token = this.fetch_token(JSON.stringify({
+            "name": this.name,
+            "lang": this.lang,
+            "author": this.user,
+            "code": this.code,
+            "time": this.time
+        }))
         this.banned_patterns = {
-            "python": ["import os", "import subprocess", "import ctypes", "__import__", "importlib"]
+            "python": ["import os", "import subprocess", "import ctypes", "__import__", "importlib",
+                       "from os", "from subprocess", "from ctypes"]
         }
+    }
+
+    fetch_token(json_data) {
+        return jwt.sign({
+            data: json_data
+        }, token_secret, {expiresIn: '1h'});
     }
 
     execute_result(error, stdout, action, bot) {
         if(!error) {
             if (action == "add") {
-                this.post_ccom();
+                this.post_ccom(bot);
                 bot.say(channels[0], "successfully added ccom!");
             } else if(action == "run") {
                 bot.say(channels[0], stdout);
             }
         } else {
             bot.say(channels[0], `The following error occured: ${error}`);
+            return false;
         }
     }
 
-    execute_ccom(action, bot) {
-        console.log("executing ccom..");
-	if(!accepted_langs.includes(this.lang)) {
+    execute_ccom(action, bot, who) {
+        if(!accepted_langs.includes(this.lang)) {
             bot.say(channels[0], `${this.lang} is not a supported language for ccoms!`);
             return;
         }
-	if(this.lang == "python") {
+        if(this.lang == "python") {
             if(action == "add") {
                 console.log(`checking ${this.code} for banned pattern..`)
                 for(let i in this.banned_patterns[this.lang]) {
@@ -59,44 +73,42 @@ class MultiLangCCOM {
                     }
                 }
             } else if(action == "del") {
-                this.remove_ccom();
+                this.remove_ccom(this.user);
                 bot.say(channels[0], "successfully removed ccom!");
                 bot.fetch_ccom_db();
                 return;
             }
 
-            /* duckgoose, I'm leaving this pattern w/o the escape char because it triggers
-            my linter and I'm too lazy to edit the config file.. */
-
             this.code = this.code.replace(/"/g, "'");
-            let e = exec(`python -c "${this.code}"`, (error, stdout, stderr) => {
-                if(error) this.execute_result(error.message, "", action, bot);
-                if(stderr) this.execute_result(stderr, "", action, bot);
+            if(who == undefined) who = {"nick": "test"};
+            let e = exec(`python -c "user = '${who['nick']}'; ${this.code}"`, (error, stdout, stderr) => {
+                if(error) { if(!this.execute_result(error.message, "", action, bot)); return; }
+                if(stderr) { if(!this.execute_result(stderr, "", action, bot)); return; }
                 this.execute_result(false, stdout, action, bot);
              });
-             bot.fetch_ccom_db();
              return;
+        } else {
+            bot.say(channels[0], "I only understand python right now :( ");
         }
     }
 
-    generate_token() {
-        return jwt.sign({
-            data: token_data
-        }, token_secret, {expiresIn: '1h'});
-    }
-
-    post_ccom() {
-        request('POST', 'http://192.168.49.105:42069/ccoms', {headers:{"authorization": this.token}}, {json: {'lang':
-        this.lang, 'name': this.name, 'author': this.user, 'code': this.code, 'time': this.time }}).getBody('utf8')
+    post_ccom(bot) {
+        let name = this.name;
+        let user = this.user;
+        request('POST', 'http://192.168.49.105:42069/ccoms', {json: {'lang': this.lang, 'name': this.name, 'author':
+        this.user, 'code': this.code, 'time': this.time }, headers:{'authorization': this.token}}).getBody('utf8')
         .then(JSON.parse).done(function (res) {
-            res.json({"res":res.code, "token": this.token});
+            console.log(`${user} successfully added ${name}!`);
+            bot.fetch_ccom_db();
         });
     }
 
     remove_ccom() {
+        let name = this.name;
+        let user = this.user;
         request('DELETE', `http://192.168.49.105:42069/ccoms/name/${this.name}`,
         {headers:{"authorization": this.token}}).done(function (res) {
-            res.json({"res":res.code, "token": this.token});
+            console.log(`${user} successfully removed ${name}!`);
         });
     }
 }
@@ -121,15 +133,16 @@ class Bot extends irc.Client {
         });
     }
 
-    parse_ccom_action(message, from) {
+    parse_ccom_action(message, who) {
         let args = message.split(" ");
+        let from = `${who['nick']}!${who['user']}@${who['host']}`
         if(args[0] == ".mlcc") {
             if(args[1] == "add") {
                 let code = "";
                 let name = args[2];
                 let lang = args[3];
                 for(let i = 4; i < args.length; i++) code += `${args[i]} `;
-                let mlcc = new MultiLangCCOM(lang, name, from, code, new Date);
+                let mlcc = new MultiLangCCOM(lang, name, from, code, new Date().toString());
                 for(let i = 0; i < ccdb.length; i++) {
                     if(ccdb[i]['name'] == args[2]) {
                         this.say(channels[0], "A ccom with this name already exists");
@@ -138,30 +151,45 @@ class Bot extends irc.Client {
                 }
                 mlcc.execute_ccom("add", this);
             } else if(args[1] == "remove") {
-                console.log("Hit remove path...")
                 let name = args[2];
                 let author = from;
                 for(let i = 0; i < ccdb.length; i++) {
                     if(ccdb[i]['name'] == name) {
-                        if(ccdb[i]['author'] != author) {
+                        if(ccdb[i]['author'] != author && !admins.includes(who['host'])) {
                             this.say(channels[0], "you may not delete a ccom you didn't add!");
                             return;
                         }
-                        new MultiLangCCOM(ccdb[i]['lang'], ccdb[i]['name'], ccdb[i]['user'],
+                        new MultiLangCCOM(ccdb[i]['lang'], ccdb[i]['name'], ccdb[i]['author'],
                         ccdb[i]['code'], ccdb[i]['time']).execute_ccom("del", this);
                         return;
                     }
                 }
                 this.say(channels[0], `no ccom with the name ${name} found`);
                 return;
+            } else if(args[1] == "list") {
+                this.fetch_ccom_db();
+                let ccoms_list = "";
+                for(let i = 0; i < ccdb.length; i++) {
+                    ccoms_list += `${ccdb[i]['name']} `
+                }
+                this.say(channels[0], ccoms_list);
+            } else if(args[1] == "view") {
+                if(args[2] == undefined) {
+                    this.say(channels[0], "please provide the name of the ccom");
+                    return;
+                }
+                let bot = this;
+                request('GET', `http://192.168.49.105:42069/ccoms/name/${args[2]}`).done(function(res) {
+                    let ccom = JSON.parse(res.getBody());
+                    bot.say(channels[0], `Language: ${ccom[0]['lang']}\n${ccom[0]['code']}\nAdded by ${ccom[0]['author']} on ${ccom[0]['Created_date']}`);
+                });
+                return;
             }
         } else {
-            this.fetch_ccom_db();
-            console.log(ccdb);
             for(let i = 0; i < ccdb.length; i++) {
                 if(ccdb[i]['name'] == args[0].substr(1, args[0].length)) {
                     new MultiLangCCOM(ccdb[i]['lang'], ccdb[i]['name'], ccdb[i]['user'],
-                    ccdb[i]['code'], ccdb[i]['time']).execute_ccom("run", this);
+                    ccdb[i]['code'], ccdb[i]['time']).execute_ccom("run", this, who);
                 }
             }
         }
@@ -171,7 +199,9 @@ class Bot extends irc.Client {
         this.addListener('message', function (from, to, message) {
             console.log(from + ' => ' + to + ': ' + message);
             if(message.match("^.")) {
-                this.parse_ccom_action(message, from);
+                this.whois(from, function(info) {
+                    this.parse_ccom_action(message, info);
+                });
             }
         });
     }

@@ -10,6 +10,7 @@ const jwt = require('jsonwebtoken');
 const verify = (req, res, next) => {
     try {
         jwt.verify(req.headers.authorization, token_secret);
+        res.json("successfully added ccom!");
         return true;
     } catch(error) {
         res.status(401).json({"msg": `Error: ${error.message}`});
@@ -27,10 +28,14 @@ exports.list_all_ccoms = function(req, res) {
 
 exports.create_ccom = function(req, res) {
     let new_ccom = new ml_ccom(req.body);
-    new_ccom.save(function(err, ccom) {
-        if (err) res.send({'code': 400, 'data': err});
-        res.json(ccom);
-    });
+    if(verify(req, res)) {
+        new_ccom.save(function(err, ccom) {
+            if (err) console.log({'code': 400, 'data': `Server replied with error: ${err.message}`});
+            console.log("success!");
+        });
+    } else {
+        console.log("Unauthorized attempt to add ccom was made!");
+    }
 };
 
 exports.get_ccom_by_name = function(req, res) {
@@ -48,7 +53,7 @@ exports.update_ccom_by_name = function(req, res) {
 };
 
 exports.get_ccoms_by_author = function(req, res) {
-    ml_ccom.find({author: req.params.author}, function(err, ccom) {
+    ml_ccom.find({author_nick: req.params.author_nick}, function(err, ccom) {
         if (err) res.send(err);
         res.json(ccom);
     });
@@ -66,6 +71,6 @@ exports.delete_ccom = function(req, res) {
         ml_ccom.deleteOne({name: req.params.name}, function(err, ccom) {
             if (err) console.log({'code': 400, 'data': `Error occurred in delete_ccom: ${err}`});
                 console.log("Successfully removed ccom!");
-            });
-        }
+        });
     }
+}
