@@ -46,10 +46,14 @@ exports.get_ccom_by_name = function(req, res) {
 };
 
 exports.update_ccom_by_name = function(req, res) {
-    ml_ccom.findOneAndUpdate({name: req.params.name}, req.body, {new: true}, function(err, ccom) {
-        if (err) res.send({'code': 400, 'data': err});
-        res.json(ccom);
-    });
+    if(verify(req, res)) {
+        ml_ccom.findOneAndUpdate({name: req.params.name}, req.body, {new: true}, function(err, ccom) {
+            if (err) console.log({'code': 400, 'data': err});
+            console.log("success!");
+        });
+    } else {
+        console.log("Unauthorized attempt to add ccom was made!");
+    }
 };
 
 exports.get_ccoms_by_author = function(req, res) {

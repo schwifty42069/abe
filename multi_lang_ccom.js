@@ -10,8 +10,8 @@ const admins = config.get("admin.admins");
 const debug = false;
 const secure = true;
 const port = 6697;
-const accepted_langs = ['python', 'js', 'php', 'c', 'bash'];
-const { exec } = require('child_process');
+const accepted_langs = ['python', 'node', 'php', 'c', 'bash', 'perl'];
+const child_process = require('child_process');
 const jwt = require('jsonwebtoken');
 const token_secret = config.get('token.token_secret');
 const esc = require('escapeshellarg');
@@ -21,6 +21,7 @@ class MultiLangCCOM {
 
     constructor(lang, name, user, code, time) {
 		this.lang = lang;
+        if(this.lang == "js") this.lang = "node";
 		this.name = name;
 		this.user = user;
 		this.code = code;
@@ -34,8 +35,10 @@ class MultiLangCCOM {
         }))
         this.banned_patterns = {
             "python": ["import os", "import subprocess", "import ctypes", "__import__", "importlib",
-                       "from os", "from subprocess", "from ctypes"]
-        }
+                       "from os", "from subprocess", "from ctypes", "chr(1)"],
+            "perl": ["exec", "system", "`", "fork", "kill", "chr(1)"],
+            "node": ["child_process", "chr(1)"]
+        };
     }
 
     fetch_token(json_data) {
@@ -44,16 +47,20 @@ class MultiLangCCOM {
         }, token_secret, {expiresIn: '1h'});
     }
 
-    execute_result(error, stdout, action, bot) {
-        if(!error) {
+    execute_result(result, action, bot) {
+        if(result["return"] == 0 || result["stderr"] == "") {
             if (action == "add") {
                 this.post_ccom(bot);
                 bot.say(channels[0], "successfully added ccom!");
             } else if(action == "run") {
-                bot.say(channels[0], stdout);
+                result = result["stdout"].replace( /\r/g, '\n');
+                let lines = result.split("\n");
+                for(let i = 0; i < 4; i++) {
+                    bot.say(channels[0], lines[i]);
+                }
             }
         } else {
-            bot.say(channels[0], `The following error occured: ${error}`);
+            bot.say(channels[0], `The following error occured: ${result["stderr"]}`);
             return false;
         }
     }
@@ -63,33 +70,37 @@ class MultiLangCCOM {
             bot.say(channels[0], `${this.lang} is not a supported language for ccoms!`);
             return;
         }
-        if(this.lang == "python") {
-            if(action == "add") {
-                console.log(`checking ${this.code} for banned pattern..`)
-                for(let i in this.banned_patterns[this.lang]) {
-                    if(this.code.match(this.banned_patterns[this.lang][i])) {
-                        bot.say(channels[0], `Use of ${this.banned_patterns[this.lang][i]} is banned for security reasons!`);
-                        return;
-                    }
+        if(action == "add") {
+            console.log(`checking ${this.code} for banned pattern..`)
+            for(let i in this.banned_patterns[this.lang]) {
+                if(this.code.match(this.banned_patterns[this.lang][i])) {
+                    bot.say(channels[0], `Use of ${this.banned_patterns[this.lang][i]} is banned for security reasons!`);
+                    return;
                 }
-            } else if(action == "del") {
-                this.remove_ccom(this.user);
-                bot.say(channels[0], "successfully removed ccom!");
-                bot.fetch_ccom_db();
-                return;
             }
-
-            this.code = this.code.replace(/"/g, "'");
-            if(who == undefined) who = {"nick": "test"};
-            let e = exec(`python -c "user = '${who['nick']}'; ${this.code}"`, (error, stdout, stderr) => {
-                if(error) { if(!this.execute_result(error.message, "", action, bot)); return; }
-                if(stderr) { if(!this.execute_result(stderr, "", action, bot)); return; }
-                this.execute_result(false, stdout, action, bot);
-             });
-             return;
-        } else {
-            bot.say(channels[0], "I only understand python right now :( ");
+        } else if(action == "del") {
+            this.remove_ccom(this.user);
+            bot.say(channels[0], "successfully removed ccom!");
+            bot.fetch_ccom_db();
+            return;
         }
+        if(who == undefined) who = {"nick": "test"};
+        let spawner = new Spawner(this.lang, null, this, who);
+        spawner.spawn((evt, err) => {
+            this.execute_result(spawner.get_formatted_output(), action, bot);
+        });
+        return;
+    }
+
+    edit_ccom(bot) {
+        let name = this.name;
+        let user = this.user;
+        request('PUT', `http://192.168.49.105:42069/ccoms/name/${this.name}`, {json: {'lang': this.lang, 'name': this.name, 'author':
+        this.user, 'code': this.code, 'time': this.time }, headers:{'authorization': this.token}}).getBody('utf8')
+        .then(JSON.parse).done(function (res) {
+            console.log(`${user} successfully edited ${name}!`);
+            bot.fetch_ccom_db();
+        });
     }
 
     post_ccom(bot) {
@@ -111,6 +122,73 @@ class MultiLangCCOM {
             console.log(`${user} successfully removed ${name}!`);
         });
     }
+}
+
+class Spawner {
+    constructor(exe, exe_args, ccom, who) {
+        this.exe = exe;
+        if(this.exe == "js") this.exe = "node"
+        this.exe_args = exe_args;
+        this.ccom = ccom;
+        this.closed = false;
+        this.stdout = "";
+        this.stderr = "";
+        this.who = who;
+    }
+    spawn = (callback) => {
+        this.callback = (evt, err) => {
+            if (callback) {
+                callback(evt, err);
+                callback = null;
+            }
+        }
+    if (this.proc) {
+        let msg = "Spawner instances cannot be reused.";
+        let err = new Error(msg);
+        this.on_error(err);
+        return;
+    }
+    this.proc = child_process.spawn(this.exe, this.exe_args);
+	this.proc.stdout.on('data', this.on_stdout);
+	this.proc.stdout.on('error', this.on_error);
+	this.proc.stderr.on('data', this.on_stderr);
+	this.proc.stderr.on('error', this.on_error);
+	this.proc.on('close', this.on_close);
+	this.proc.on('error', this.on_error);
+	this.proc.stdin.on('error', this.on_error);
+    if(this.ccom.lang == "python") this.proc.stdin.write(`user = "${this.who['nick']}"; ${this.ccom.code}`);
+    if(this.ccom.lang == "perl") this.proc.stdin.write(`$user = "${this.who['nick']}"; ${this.ccom.code}`);
+    if(this.ccom.lang == "js" || this.ccom.lang == "node") this.proc.stdin.write(`let user = "${this.who['nick']}"; ${this.ccom.code}`);
+	this.proc.stdin.end();
+    }
+    on_stdout = (data) => {
+		this.stdout = data.toString();
+	}
+	on_stderr = (data) => {
+		this.stderr = data.toString();
+	}
+	on_close = (return_code) => {
+		this.return_code = return_code;
+		this.closed = true;
+		this.callback('done');
+	}
+	on_error = (err) => {
+		this.error = err;
+		this.callback('error', err);
+	}
+	get_formatted_output() {
+		let msg = "";
+		if (this.error) {
+			msg = {"stdout": "", "stderr": `${this.error}]`, "return": `${this.return_code}`};
+		} else if (this.closed) {
+			msg = {"stdout": `${this.stdout}`, "stderr": `${this.stderr}`, "return": `${this.return_code}`};
+		} else if (this.proc) {
+			msg = `still running.`;
+		} else {
+			msg = `has not been launched yet.`;
+		}
+		return msg;
+	}
 }
 
 class Bot extends irc.Client {
@@ -135,7 +213,7 @@ class Bot extends irc.Client {
 
     parse_ccom_action(message, who) {
         let args = message.split(" ");
-        let from = `${who['nick']}!${who['user']}@${who['host']}`
+        let from = `${who['nick']}!${who['user']}@${who['host']}`;
         if(args[0] == ".mlcc") {
             if(args[1] == "add") {
                 let code = "";
@@ -145,17 +223,21 @@ class Bot extends irc.Client {
                 let mlcc = new MultiLangCCOM(lang, name, from, code, new Date().toString());
                 for(let i = 0; i < ccdb.length; i++) {
                     if(ccdb[i]['name'] == args[2]) {
-                        this.say(channels[0], "A ccom with this name already exists");
+                        if(ccdb[i]['author'] != from && !admins.includes(who['host'])) {
+                            this.say(channels[0], "you may not edit a ccom you didn't add!");
+                            return;
+                        }
+                        mlcc.edit_ccom(this);
+                        this.say(channels[0], "successfully edited ccom!")
                         return;
                     }
                 }
                 mlcc.execute_ccom("add", this);
             } else if(args[1] == "remove") {
                 let name = args[2];
-                let author = from;
                 for(let i = 0; i < ccdb.length; i++) {
                     if(ccdb[i]['name'] == name) {
-                        if(ccdb[i]['author'] != author && !admins.includes(who['host'])) {
+                        if(ccdb[i]['author'] != from && !admins.includes(who['host'])) {
                             this.say(channels[0], "you may not delete a ccom you didn't add!");
                             return;
                         }
