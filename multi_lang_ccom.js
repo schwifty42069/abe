@@ -14,8 +14,8 @@ const accepted_langs = ['python', 'node', 'php', 'c', 'bash', 'perl'];
 const child_process = require('child_process');
 const jwt = require('jsonwebtoken');
 const token_secret = config.get('token.token_secret');
-const esc = require('escapeshellarg');
 let ccdb = {};
+let last_ccom_time = Date.now()
 
 class MultiLangCCOM {
 
@@ -35,9 +35,9 @@ class MultiLangCCOM {
         }))
         this.banned_patterns = {
             "python": ["import os", "import subprocess", "import ctypes", "__import__", "importlib",
-                       "from os", "from subprocess", "from ctypes", "chr(1)"],
-            "perl": ["exec", "system", "`", "fork", "kill", "chr(1)"],
-            "node": ["child_process", "chr(1)"]
+                       "from os", "from subprocess", "from ctypes", "chr"],
+            "perl": ["exec", "system", "`", "fork", "kill", "chr"],
+            "node": ["child_process", "exec", "spawn", "shelljs", "fromCharCode"]
         };
     }
 
@@ -55,22 +55,31 @@ class MultiLangCCOM {
             } else if(action == "run") {
                 result = result["stdout"].replace( /\r/g, '\n');
                 let lines = result.split("\n");
-                for(let i = 0; i < 4; i++) {
+                for(let i = 0; i < 6; i++) {
                     bot.say(channels[0], lines[i]);
                 }
+            } else {
+                this.edit_ccom(bot);
+                bot.say(channels[0], "successfully edited ccom!");
+                return;
             }
         } else {
-            bot.say(channels[0], `The following error occured: ${result["stderr"]}`);
+            result = result["stderr"];
+            let lines = result.split("\n");
+            bot.say(channels[0], "The following error occurred:\n");
+            for(let i = 0; i < 6; i++) {
+                bot.say(channels[0], lines[i]);
+            }
             return false;
         }
     }
 
-    execute_ccom(action, bot, who) {
+    execute_ccom(action, bot, who, args) {
         if(!accepted_langs.includes(this.lang)) {
             bot.say(channels[0], `${this.lang} is not a supported language for ccoms!`);
             return;
         }
-        if(action == "add") {
+        if(action == "add" || action == "edit") {
             console.log(`checking ${this.code} for banned pattern..`)
             for(let i in this.banned_patterns[this.lang]) {
                 if(this.code.match(this.banned_patterns[this.lang][i])) {
@@ -85,7 +94,8 @@ class MultiLangCCOM {
             return;
         }
         if(who == undefined) who = {"nick": "test"};
-        let spawner = new Spawner(this.lang, null, this, who);
+        if(args == undefined) args = [];
+        let spawner = new Spawner(this.lang, null, this, who, args);
         spawner.spawn((evt, err) => {
             this.execute_result(spawner.get_formatted_output(), action, bot);
         });
@@ -125,7 +135,7 @@ class MultiLangCCOM {
 }
 
 class Spawner {
-    constructor(exe, exe_args, ccom, who) {
+    constructor(exe, exe_args, ccom, who, args) {
         this.exe = exe;
         if(this.exe == "js") this.exe = "node"
         this.exe_args = exe_args;
@@ -134,6 +144,7 @@ class Spawner {
         this.stdout = "";
         this.stderr = "";
         this.who = who;
+        this.args = args;
     }
     spawn = (callback) => {
         this.callback = (evt, err) => {
@@ -156,9 +167,10 @@ class Spawner {
 	this.proc.on('close', this.on_close);
 	this.proc.on('error', this.on_error);
 	this.proc.stdin.on('error', this.on_error);
-    if(this.ccom.lang == "python") this.proc.stdin.write(`user = "${this.who['nick']}"; ${this.ccom.code}`);
-    if(this.ccom.lang == "perl") this.proc.stdin.write(`$user = "${this.who['nick']}"; ${this.ccom.code}`);
-    if(this.ccom.lang == "js" || this.ccom.lang == "node") this.proc.stdin.write(`let user = "${this.who['nick']}"; ${this.ccom.code}`);
+    if(this.ccom.lang == "python") this.proc.stdin.write(`arg_str = "${arg_str}"; user = "${this.who['nick']}"; ${this.ccom.code}`);
+    if(this.ccom.lang == "perl") this.proc.stdin.write(`$args = ['${this.args[0]}', '${this.args[1]}']; $user = "${this.who['nick']}"; ${this.ccom.code}`);
+    if(this.ccom.lang == "js" || this.ccom.lang == "node") { let arg_str = this.args.join(" "); this.proc.stdin.write
+      (`let arg_str = "${arg_str}"; let args = arg_str.split(" "); let input = arg_str.replace(/.${this.ccom.name} /, ''); let user = "${this.who['nick']}"; ${this.ccom.code}`); }
 	this.proc.stdin.end();
     }
     on_stdout = (data) => {
@@ -212,6 +224,10 @@ class Bot extends irc.Client {
     }
 
     parse_ccom_action(message, who) {
+        if((Date.now() - last_ccom_time) / 1000 < 3) {
+           this.say(channels[0], "Lay off the blow, you're out of control.");
+           return;
+        }
         let args = message.split(" ");
         let from = `${who['nick']}!${who['user']}@${who['host']}`;
         if(args[0] == ".mlcc") {
@@ -225,28 +241,33 @@ class Bot extends irc.Client {
                     if(ccdb[i]['name'] == args[2]) {
                         if(ccdb[i]['author'] != from && !admins.includes(who['host'])) {
                             this.say(channels[0], "you may not edit a ccom you didn't add!");
+                            last_ccom_time = Date.now();
                             return;
                         }
-                        mlcc.edit_ccom(this);
-                        this.say(channels[0], "successfully edited ccom!")
+                        mlcc.execute_ccom("edit", this, who)
+                        last_ccom_time = Date.now();
                         return;
                     }
                 }
                 mlcc.execute_ccom("add", this);
+                last_ccom_time = Date.now();
             } else if(args[1] == "remove") {
                 let name = args[2];
                 for(let i = 0; i < ccdb.length; i++) {
                     if(ccdb[i]['name'] == name) {
                         if(ccdb[i]['author'] != from && !admins.includes(who['host'])) {
                             this.say(channels[0], "you may not delete a ccom you didn't add!");
+                            last_ccom_time = Date.now();
                             return;
                         }
                         new MultiLangCCOM(ccdb[i]['lang'], ccdb[i]['name'], ccdb[i]['author'],
                         ccdb[i]['code'], ccdb[i]['time']).execute_ccom("del", this);
+                        last_ccom_time = Date.now();
                         return;
                     }
                 }
                 this.say(channels[0], `no ccom with the name ${name} found`);
+                last_ccom_time = Date.now();
                 return;
             } else if(args[1] == "list") {
                 this.fetch_ccom_db();
@@ -255,23 +276,31 @@ class Bot extends irc.Client {
                     ccoms_list += `${ccdb[i]['name']} `
                 }
                 this.say(channels[0], ccoms_list);
+                last_ccom_time = Date.now()
             } else if(args[1] == "view") {
                 if(args[2] == undefined) {
                     this.say(channels[0], "please provide the name of the ccom");
+                    last_ccom_time = Date.now();
                     return;
                 }
                 let bot = this;
                 request('GET', `http://192.168.49.105:42069/ccoms/name/${args[2]}`).done(function(res) {
                     let ccom = JSON.parse(res.getBody());
                     bot.say(channels[0], `Language: ${ccom[0]['lang']}\n${ccom[0]['code']}\nAdded by ${ccom[0]['author']} on ${ccom[0]['Created_date']}`);
+                    last_ccom_time = Date.now();
                 });
                 return;
+            } else if(args[1] == "help") {
+                this.say(channels[0], "Usage: .mlcc add|remove|list|view\nAdd: .mlcc add ccom_name ccom_language ccom_code" +
+                                      "\nRemove: .mlcc remove ccom_name\nList: .mlcc list\nView: .mlcc view ccom_name");
+                last_ccom_time = Date.now();
             }
         } else {
             for(let i = 0; i < ccdb.length; i++) {
                 if(ccdb[i]['name'] == args[0].substr(1, args[0].length)) {
                     new MultiLangCCOM(ccdb[i]['lang'], ccdb[i]['name'], ccdb[i]['user'],
-                    ccdb[i]['code'], ccdb[i]['time']).execute_ccom("run", this, who);
+                    ccdb[i]['code'], ccdb[i]['time']).execute_ccom("run", this, who, args);
+                    last_ccom_time = Date.now();
                 }
             }
         }
