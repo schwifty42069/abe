@@ -7,19 +7,42 @@ Data for the user created commands are stored in a mongodb instance via RESTful 
 
 **The following languages will be available for use:**
 ```
-Python - operational in basic form
+Python -- Fully functional!
 
-Ruby - WIP
+Available ccom variables:
 
+    user (string) - user who invokes ccom
 
-Javascript - WIP
+    args (array) - arguments passed with ccom
 
+    arg_str (string) - joined args array without ccom name included
 
-Bash - WIP
+Ruby -- not yet implemented
 
+Javascript -- Fully functional!*
 
-PHP - WIP
+Available ccom variables:
+
+    user (string) - user who invokes ccom
+
+    args (array) - arguments passed with ccom
+
+    arg_str (string) - joined args array without ccom name included
+
+    *note: nodejs instance is slow to spawn, so js ccoms are slow :(
+
+Bash -- Available in basic form
+
+Available ccom variables:
+
+    user (string) - user who invokes ccom
+
+Perl -- Available in basic form
+
+Available ccom variables:
+
+    $user (string) - user who invokes ccom
+
+PHP -- not yet implemented
 
 ```
-
-*I will update this documentation with more detail as the project comes along!*
