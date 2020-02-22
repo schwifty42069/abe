@@ -4,7 +4,7 @@ const config = require('config');
 const irc = require('irc');
 const request = require('then-request');
 const server = 'chat.freenode.net';
-const channels = ['#hlsvillage'];
+const channels = ['##barkbarkbark'];
 const nick = 'testytesterbot';
 const admins = config.get("admin.admins");
 const debug = false;
@@ -15,29 +15,32 @@ const child_process = require('child_process');
 const jwt = require('jsonwebtoken');
 const token_secret = config.get('token.token_secret');
 let ccdb = {};
-let last_ccom_time = Date.now()
+let author_ccoms = {};
+let last_ccom_time = Date.now();
 
 class MultiLangCCOM {
 
-    constructor(lang, name, user, code, time) {
+    constructor(lang, name, nick, host, code, time) {
 		this.lang = lang;
         if(this.lang == "js") this.lang = "node";
 		this.name = name;
-		this.user = user;
+		this.nick = nick;
+        this.host = host;
 		this.code = code;
 		this.time = time;
         this.token = this.fetch_token(JSON.stringify({
             "name": this.name,
             "lang": this.lang,
-            "author": this.user,
+            "author_nick": this.nick,
+            "author_host": this.host,
             "code": this.code,
             "time": this.time
         }))
         this.banned_patterns = {
-            "python": ["import os", "import subprocess", "import ctypes", "__import__", "importlib",
-                       "from os", "from subprocess", "from ctypes", "chr"],
-            "perl": ["exec", "system", "`", "fork", "kill", "chr"],
-            "node": ["child_process", "exec", "spawn", "shelljs", "fromCharCode"]
+            "python": ["import os", "import subprocess", "import ctypes", "__import__", "importlib", "from os", "from subprocess", "from ctypes", "chr", "0001", "\u0001"],
+            "perl": ["exec", "system", "`", "fork", "kill", "chr", "0001", "\u0001"],
+            "node": ["child_process", "exec", "spawn", "shelljs", "fromCharCode", "cluster", "fs", "__dirname__", "__filename", "0001", "\u0001"],
+            "bash": [">", "|", "cd", "ls", "pwd", "mkdir", "001", "\u0001"]
         };
     }
 
@@ -94,7 +97,7 @@ class MultiLangCCOM {
             return;
         }
         if(who == undefined) who = {"nick": "test"};
-        if(args == undefined) args = [];
+        if(args == undefined) args = ["1", "2", "3", "4", "5"];
         let spawner = new Spawner(this.lang, null, this, who, args);
         spawner.spawn((evt, err) => {
             this.execute_result(spawner.get_formatted_output(), action, bot);
@@ -105,8 +108,8 @@ class MultiLangCCOM {
     edit_ccom(bot) {
         let name = this.name;
         let user = this.user;
-        request('PUT', `http://192.168.49.105:42069/ccoms/name/${this.name}`, {json: {'lang': this.lang, 'name': this.name, 'author':
-        this.user, 'code': this.code, 'time': this.time }, headers:{'authorization': this.token}}).getBody('utf8')
+        request('PUT', `http://192.168.49.105:42069/ccoms/name/${this.name}`, {json: {'lang': this.lang, 'name': this.name, 'author_nick':
+        this.nick, 'author_host': this.host, 'code': this.code, 'time': this.time }, headers:{'authorization': this.token}}).getBody('utf8')
         .then(JSON.parse).done(function (res) {
             console.log(`${user} successfully edited ${name}!`);
             bot.fetch_ccom_db();
@@ -116,8 +119,8 @@ class MultiLangCCOM {
     post_ccom(bot) {
         let name = this.name;
         let user = this.user;
-        request('POST', 'http://192.168.49.105:42069/ccoms', {json: {'lang': this.lang, 'name': this.name, 'author':
-        this.user, 'code': this.code, 'time': this.time }, headers:{'authorization': this.token}}).getBody('utf8')
+        request('POST', 'http://192.168.49.105:42069/ccoms', {json: {'lang': this.lang, 'name': this.name, 'author_nick':
+        this.nick, 'author_host': this.host, 'code': this.code, 'time': this.time }, headers:{'authorization': this.token}}).getBody('utf8')
         .then(JSON.parse).done(function (res) {
             console.log(`${user} successfully added ${name}!`);
             bot.fetch_ccom_db();
@@ -126,7 +129,7 @@ class MultiLangCCOM {
 
     remove_ccom() {
         let name = this.name;
-        let user = this.user;
+        let user = this.nick;
         request('DELETE', `http://192.168.49.105:42069/ccoms/name/${this.name}`,
         {headers:{"authorization": this.token}}).done(function (res) {
             console.log(`${user} successfully removed ${name}!`);
@@ -167,10 +170,11 @@ class Spawner {
 	this.proc.on('close', this.on_close);
 	this.proc.on('error', this.on_error);
 	this.proc.stdin.on('error', this.on_error);
-    if(this.ccom.lang == "python") this.proc.stdin.write(`arg_str = "${arg_str}"; user = "${this.who['nick']}"; ${this.ccom.code}`);
+    if(this.ccom.lang == "python") { if(this.args.length < 2) this.args.push("test2"); let arg_str = this.args.join(" "); this.proc.stdin.write(`arg_str = "${arg_str}"; args = arg_str.split(" "); user = "${this.who['nick']}"; ${this.ccom.code});`); }
     if(this.ccom.lang == "perl") this.proc.stdin.write(`$args = ['${this.args[0]}', '${this.args[1]}']; $user = "${this.who['nick']}"; ${this.ccom.code}`);
     if(this.ccom.lang == "js" || this.ccom.lang == "node") { let arg_str = this.args.join(" "); this.proc.stdin.write
       (`let arg_str = "${arg_str}"; let args = arg_str.split(" "); let input = arg_str.replace(/.${this.ccom.name} /, ''); let user = "${this.who['nick']}"; ${this.ccom.code}`); }
+    if(this.ccom.lang == "bash") this.proc.stdin.write(`user=${this.who['nick']}; ${this.ccom.code}`);
 	this.proc.stdin.end();
     }
     on_stdout = (data) => {
@@ -213,94 +217,101 @@ class Bot extends irc.Client {
         this.secure = secure;
         this.debug = debug;
         this.start_listener();
-        this.fetch_ccom_db();
+        this.fetch_ccom_db(undefined, true);
     }
 
-    fetch_ccom_db(){
-        console.log("started fetching ccoms")
-        request('GET', 'http://192.168.49.105:42069/ccoms').done(function(res) {
-            ccdb = JSON.parse(res.getBody());
+    fetch_ccom_db(user, launch){
+        let bot = this;
+        console.log("started fetching user ccoms")
+        request('GET', `http://192.168.49.105:42069/ccoms/author/${user}`).done(function(res) {
+            author_ccoms = JSON.parse(res.getBody());
+            let ccoms_list = "";
+            if(author_ccoms.length == 0) { bot.say(channels[0], `no ccoms found for ${user}`); return; }
+            for(let i = 0; i < author_ccoms.length; i++) {
+                ccoms_list += `${author_ccoms[i]['name']} `
+            }
+            if(!launch || launch == undefined) bot.say(channels[0], ccoms_list);
         });
     }
 
+
     parse_ccom_action(message, who) {
-        if((Date.now() - last_ccom_time) / 1000 < 3) {
+        if((Date.now() - last_ccom_time) / 1000 < 1) {
            this.say(channels[0], "Lay off the blow, you're out of control.");
            return;
         }
         let args = message.split(" ");
-        let from = `${who['nick']}!${who['user']}@${who['host']}`;
+        let nick = who['nick'];
+        let host = who['host'];
         if(args[0] == ".mlcc") {
             if(args[1] == "add") {
                 let code = "";
                 let name = args[2];
                 let lang = args[3];
                 for(let i = 4; i < args.length; i++) code += `${args[i]} `;
-                let mlcc = new MultiLangCCOM(lang, name, from, code, new Date().toString());
+                let mlcc = new MultiLangCCOM(lang, name, nick, host, code, new Date().toString());
                 for(let i = 0; i < ccdb.length; i++) {
                     if(ccdb[i]['name'] == args[2]) {
-                        if(ccdb[i]['author'] != from && !admins.includes(who['host'])) {
+                        if(ccdb[i]['author_host'] != host && !admins.includes(host)) {
                             this.say(channels[0], "you may not edit a ccom you didn't add!");
-                            last_ccom_time = Date.now();
                             return;
                         }
                         mlcc.execute_ccom("edit", this, who)
-                        last_ccom_time = Date.now();
                         return;
                     }
                 }
                 mlcc.execute_ccom("add", this);
-                last_ccom_time = Date.now();
+
             } else if(args[1] == "remove") {
                 let name = args[2];
                 for(let i = 0; i < ccdb.length; i++) {
                     if(ccdb[i]['name'] == name) {
-                        if(ccdb[i]['author'] != from && !admins.includes(who['host'])) {
+                        if(ccdb[i]['author_host'] != host && !admins.includes(host)) {
                             this.say(channels[0], "you may not delete a ccom you didn't add!");
-                            last_ccom_time = Date.now();
                             return;
                         }
-                        new MultiLangCCOM(ccdb[i]['lang'], ccdb[i]['name'], ccdb[i]['author'],
+                        new MultiLangCCOM(ccdb[i]['lang'], ccdb[i]['name'], ccdb[i]['author_nick'], ccdb[i]['author_host'],
                         ccdb[i]['code'], ccdb[i]['time']).execute_ccom("del", this);
-                        last_ccom_time = Date.now();
                         return;
                     }
                 }
                 this.say(channels[0], `no ccom with the name ${name} found`);
-                last_ccom_time = Date.now();
                 return;
             } else if(args[1] == "list") {
-                this.fetch_ccom_db();
-                let ccoms_list = "";
-                for(let i = 0; i < ccdb.length; i++) {
-                    ccoms_list += `${ccdb[i]['name']} `
+                author_ccoms = {};
+                if(args[2] == undefined) {
+                    this.fetch_ccom_db(nick);
+                } else {
+                    this.fetch_ccom_db(args[2]);
                 }
-                this.say(channels[0], ccoms_list);
-                last_ccom_time = Date.now()
             } else if(args[1] == "view") {
                 if(args[2] == undefined) {
                     this.say(channels[0], "please provide the name of the ccom");
-                    last_ccom_time = Date.now();
                     return;
                 }
                 let bot = this;
+                let exists = false;
+                for(let i = 0; i < ccdb.length; i++) {
+                    if(ccdb[i]['name'] == args[2]) { exists = true; break; }
+                }
+                if(!exists) { bot.say(channels[0], "no ccom found!"); return; }
                 request('GET', `http://192.168.49.105:42069/ccoms/name/${args[2]}`).done(function(res) {
                     let ccom = JSON.parse(res.getBody());
-                    bot.say(channels[0], `Language: ${ccom[0]['lang']}\n${ccom[0]['code']}\nAdded by ${ccom[0]['author']} on ${ccom[0]['Created_date']}`);
-                    last_ccom_time = Date.now();
+                    bot.say(channels[0],
+                        `Language: ${ccom[0]['lang']}\n${ccom[0]['code']}\nAdded by ${ccom[0]['author_nick']}@${ccom[0]['author_host']} on ${ccom[0]['created_date']}`);
+
                 });
                 return;
             } else if(args[1] == "help") {
                 this.say(channels[0], "Usage: .mlcc add|remove|list|view\nAdd: .mlcc add ccom_name ccom_language ccom_code" +
                                       "\nRemove: .mlcc remove ccom_name\nList: .mlcc list\nView: .mlcc view ccom_name");
-                last_ccom_time = Date.now();
+
             }
         } else {
             for(let i = 0; i < ccdb.length; i++) {
                 if(ccdb[i]['name'] == args[0].substr(1, args[0].length)) {
-                    new MultiLangCCOM(ccdb[i]['lang'], ccdb[i]['name'], ccdb[i]['user'],
-                    ccdb[i]['code'], ccdb[i]['time']).execute_ccom("run", this, who, args);
-                    last_ccom_time = Date.now();
+                    new MultiLangCCOM(ccdb[i]['lang'], ccdb[i]['name'], ccdb[i]['author_nick'],
+                    ccdb[i]['author_host'], ccdb[i]['code'], ccdb[i]['time']).execute_ccom("run", this, who, args);
                 }
             }
         }
@@ -312,6 +323,7 @@ class Bot extends irc.Client {
             if(message.match("^.")) {
                 this.whois(from, function(info) {
                     this.parse_ccom_action(message, info);
+                    last_ccom_time = Date.now();
                 });
             }
         });

@@ -14,7 +14,7 @@ module.exports = function(ccoms) {
         .put(CCOMDb.update_ccom_by_name)
         .delete(CCOMDb.delete_ccom);
 
-    ccoms.route('/ccoms/author/:author')
+    ccoms.route('/ccoms/author/:author_nick')
         .get(CCOMDb.get_ccoms_by_author);
 
     ccoms.route('/ccoms/lang/:lang')

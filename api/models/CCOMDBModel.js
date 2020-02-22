@@ -19,9 +19,13 @@ let CCOMDBSchema = new Schema({
         type: String,
         required: 'The ccom code is required'
     },
-    author: {
+    author_nick: {
         type: String,
-        required: 'The author of the ccom is required'
+        required: 'The author\'s nick is required'
+    },
+    author_host: {
+        type: String,
+        required: 'The author\'s hostmask is required'
     },
     created_date: {
         type: String,
