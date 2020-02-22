@@ -15,10 +15,13 @@ Available ccom variables:
 
     args (array) - arguments passed with ccom
 
-    arg_str (string) - joined args array without ccom name included
+    arg_str (string) - joined args array without ccom name
+```
 
+```
 Ruby -- not yet implemented
-
+```
+```
 Javascript -- Fully functional!*
 
 Available ccom variables:
@@ -27,22 +30,26 @@ Available ccom variables:
 
     args (array) - arguments passed with ccom
 
-    arg_str (string) - joined args array without ccom name included
+    arg_str (string) - joined args array without ccom name
 
-    *note: nodejs instance is slow to spawn, so js ccoms are slow :(
-
+    *note: nodejs instance is slow to spawn (ccoms are slow)
+```
+```
 Bash -- Available in basic form
 
 Available ccom variables:
 
     user (string) - user who invokes ccom
 
+```
+```
 Perl -- Available in basic form
 
 Available ccom variables:
 
     $user (string) - user who invokes ccom
-
+```
+```
 PHP -- not yet implemented
 
 ```
