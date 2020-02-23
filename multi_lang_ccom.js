@@ -93,7 +93,7 @@ class MultiLangCCOM {
         } else if(action == "del") {
             this.remove_ccom(this.user);
             bot.say(channels[0], "successfully removed ccom!");
-            bot.fetch_ccom_db();
+            bot.fetch_ccom_db(undefined, true);
             return;
         }
         if(who == undefined) who = {"nick": "test"};
@@ -112,7 +112,7 @@ class MultiLangCCOM {
         this.nick, 'author_host': this.host, 'code': this.code, 'time': this.time }, headers:{'authorization': this.token}}).getBody('utf8')
         .then(JSON.parse).done(function (res) {
             console.log(`${user} successfully edited ${name}!`);
-            bot.fetch_ccom_db();
+            bot.fetch_ccom_db(undefined, true);
         });
     }
 
@@ -123,7 +123,7 @@ class MultiLangCCOM {
         this.nick, 'author_host': this.host, 'code': this.code, 'time': this.time }, headers:{'authorization': this.token}}).getBody('utf8')
         .then(JSON.parse).done(function (res) {
             console.log(`${user} successfully added ${name}!`);
-            bot.fetch_ccom_db();
+            bot.fetch_ccom_db(undefined, true);
         });
     }
 
@@ -170,7 +170,7 @@ class Spawner {
 	this.proc.on('close', this.on_close);
 	this.proc.on('error', this.on_error);
 	this.proc.stdin.on('error', this.on_error);
-    if(this.ccom.lang == "python") { if(this.args.length < 2) this.args.push("test2"); let arg_str = this.args.join(" "); this.proc.stdin.write(`arg_str = "${arg_str}"; args = arg_str.split(" "); user = "${this.who['nick']}"; ${this.ccom.code});`); }
+    if(this.ccom.lang == "python") { if(this.args.length < 2) this.args.push("test2"); let arg_str = this.args.join(" "); this.proc.stdin.write(`arg_str = "${arg_str}"; args = arg_str.split(" "); user = "${this.who['nick']}"; ${this.ccom.code}`); }
     if(this.ccom.lang == "perl") this.proc.stdin.write(`$args = ['${this.args[0]}', '${this.args[1]}']; $user = "${this.who['nick']}"; ${this.ccom.code}`);
     if(this.ccom.lang == "js" || this.ccom.lang == "node") { let arg_str = this.args.join(" "); this.proc.stdin.write
       (`let arg_str = "${arg_str}"; let args = arg_str.split(" "); let input = arg_str.replace(/.${this.ccom.name} /, ''); let user = "${this.who['nick']}"; ${this.ccom.code}`); }
@@ -222,21 +222,36 @@ class Bot extends irc.Client {
 
     fetch_ccom_db(user, launch){
         let bot = this;
-        console.log("started fetching user ccoms")
-        request('GET', `http://192.168.49.105:42069/ccoms/author/${user}`).done(function(res) {
-            author_ccoms = JSON.parse(res.getBody());
-            let ccoms_list = "";
-            if(author_ccoms.length == 0) { bot.say(channels[0], `no ccoms found for ${user}`); return; }
-            for(let i = 0; i < author_ccoms.length; i++) {
-                ccoms_list += `${author_ccoms[i]['name']} `
-            }
-            if(!launch || launch == undefined) bot.say(channels[0], ccoms_list);
-        });
+        if(user == undefined) {
+            console.log("started fetching ccoms")
+            request('GET', 'http://192.168.49.105:42069/ccoms').done(function(res) {
+                ccdb = JSON.parse(res.getBody());
+                let ccoms_list = "";
+                for(let i = 0; i < ccdb.length; i++) {
+                    ccoms_list += `${ccdb[i]['name']} `
+                }
+                if(!launch || launch == undefined) bot.say(channels[0], ccoms_list);
+            });
+        } else {
+            console.log("started fetching user ccoms")
+            request('GET', `http://192.168.49.105:42069/ccoms/author/${user}`).done(function(res) {
+                author_ccoms = JSON.parse(res.getBody());
+                let ccoms_list = "";
+                for(let i = 0; i < author_ccoms.length; i++) {
+                    ccoms_list += `${author_ccoms[i]['name']} `
+                }
+                if(ccoms_list.length == 0) {
+                    bot.say(channels[0], `no ccoms found for ${user}`);
+                } else {
+                    bot.say(channels[0], ccoms_list);
+                }
+            });
+        }
+        author_ccoms = {};
     }
 
-
     parse_ccom_action(message, who) {
-        if((Date.now() - last_ccom_time) / 1000 < 1) {
+        if((Date.now() - last_ccom_time) / 1000 < 0) {
            this.say(channels[0], "Lay off the blow, you're out of control.");
            return;
         }
@@ -278,11 +293,12 @@ class Bot extends irc.Client {
                 this.say(channels[0], `no ccom with the name ${name} found`);
                 return;
             } else if(args[1] == "list") {
-                author_ccoms = {};
                 if(args[2] == undefined) {
-                    this.fetch_ccom_db(nick);
+                    this.fetch_ccom_db(undefined, false);
+                    return;
                 } else {
-                    this.fetch_ccom_db(args[2]);
+                    this.fetch_ccom_db(args[2], false);
+                    return;
                 }
             } else if(args[1] == "view") {
                 if(args[2] == undefined) {
@@ -290,22 +306,20 @@ class Bot extends irc.Client {
                     return;
                 }
                 let bot = this;
-                let exists = false;
-                for(let i = 0; i < ccdb.length; i++) {
-                    if(ccdb[i]['name'] == args[2]) { exists = true; break; }
-                }
-                if(!exists) { bot.say(channels[0], "no ccom found!"); return; }
                 request('GET', `http://192.168.49.105:42069/ccoms/name/${args[2]}`).done(function(res) {
                     let ccom = JSON.parse(res.getBody());
-                    bot.say(channels[0],
-                        `Language: ${ccom[0]['lang']}\n${ccom[0]['code']}\nAdded by ${ccom[0]['author_nick']}@${ccom[0]['author_host']} on ${ccom[0]['created_date']}`);
-
+                    if(ccom == undefined || ccom.length == 0) {
+                        bot.say(channels[0], `no ccom named ${args[2]} found`);
+                        return;
+                    } else {
+                        bot.say(channels[0],
+                            `Language: ${ccom[0]['lang']}\n${ccom[0]['code']}\nAdded by ${ccom[0]['author_nick']}@${ccom[0]['author_host']} on ${ccom[0]['created_date']}`);
+                    }
                 });
                 return;
             } else if(args[1] == "help") {
                 this.say(channels[0], "Usage: .mlcc add|remove|list|view\nAdd: .mlcc add ccom_name ccom_language ccom_code" +
                                       "\nRemove: .mlcc remove ccom_name\nList: .mlcc list\nView: .mlcc view ccom_name");
-
             }
         } else {
             for(let i = 0; i < ccdb.length; i++) {
