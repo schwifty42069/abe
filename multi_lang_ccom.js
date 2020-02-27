@@ -179,13 +179,14 @@ class Spawner {
         }
         if(this.ccom.lang == "perl") {
             let arg_str = this.args.join(" ");
-            this.proc.stdin.write(`$arg_str = "${arg_str}"; $arg_str =~ s/.${this.ccom.name} //; @args = $arg_str.split(" "); $user = "${this.who['nick']}"; ${this.ccom.code}`);
+            this.proc.stdin.write(`$arg_str = "${arg_str}"; $arg_str =~ s/.${this.ccom.name} //; @args = split(" ", $arg_str); $user = "${this.who['nick']}"; ${this.ccom.code}`);
         }
         if(this.ccom.lang == "js" || this.ccom.lang == "node") { let arg_str = this.args.join(" "); this.proc.stdin.write
           (`let arg_str = "${arg_str}"; let args = arg_str.split(" "); let input = arg_str.replace(/.${this.ccom.name} /, ''); let user = "${this.who['nick']}"; ${this.ccom.code}`);
         }
         if(this.ccom.lang == "bash") {
-            this.proc.stdin.write(`user=${this.who['nick']}; ${this.ccom.code}`);
+            let arg_str = this.args.join(" ");
+            this.proc.stdin.write(`user=${this.who['nick']}; arg_str="${arg_str}"; IFS=' '; args=(\${arg_str// / }); unset IFS; ${this.ccom.code}`);
         }
     	this.proc.stdin.end();
     }
