@@ -30,7 +30,7 @@ exports.create_ccom = function(req, res) {
     let new_ccom = new ml_ccom(req.body);
     if(verify(req, res)) {
         new_ccom.save(function(err, ccom) {
-            if (err) console.log({'code': 400, 'data': `Server replied with error: ${err.message}`});
+            if (err) { console.log({'code': 400, 'data': `Server replied with error: ${err.message}`}); return; }
             console.log("success!");
         });
     } else {

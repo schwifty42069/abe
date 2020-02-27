@@ -29,7 +29,7 @@ let CCOMDBSchema = new Schema({
     },
     created_date: {
         type: String,
-        default: new Date().toString()
+        required: "The date and time of creation is required"
     }
 });
 
