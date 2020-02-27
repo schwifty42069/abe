@@ -40,7 +40,7 @@ class MultiLangCCOM {
             "python": ["import os", "import subprocess", "import ctypes", "__import__", "importlib", "from os", "from subprocess", "from ctypes", "chr", "0001", "\u0001"],
             "perl": ["exec", "system", "`", "fork", "kill", "chr", "0001", "\u0001"],
             "node": ["child_process", "exec", "spawn", "shelljs", "fromCharCode", "cluster", "fs", "__dirname__", "__filename", "0001", "\u0001"],
-            "bash": [">", "|", "cd", "ls", "pwd", "mkdir", "001", "\u0001"]
+            "bash": [">", "cd", "ls", "pwd", "mkdir", "001", "\u0001", "\\|"]
         };
     }
 
@@ -78,7 +78,6 @@ class MultiLangCCOM {
     }
 
     execute_ccom(action, bot, who, args) {
-        last_ccom_time = Date.now();
         if(!accepted_langs.includes(this.lang)) {
             bot.say(channels[0], `${this.lang} is not a supported language for ccoms!`);
             return;
@@ -179,7 +178,8 @@ class Spawner {
             let arg_str = this.args.join(" "); this.proc.stdin.write(`arg_str = "${arg_str}"; args = arg_str.split(" "); user = "${this.who['nick']}"; ${this.ccom.code}`);
         }
         if(this.ccom.lang == "perl") {
-            this.proc.stdin.write(`$args = ['${this.args[0]}', '${this.args[1]}']; $user = "${this.who['nick']}"; ${this.ccom.code}`);
+            let arg_str = this.args.join(" ");
+            this.proc.stdin.write(`$arg_str = "${arg_str}"; $arg_str =~ s/.${this.ccom.name} //; @args = $arg_str.split(" "); $user = "${this.who['nick']}"; ${this.ccom.code}`);
         }
         if(this.ccom.lang == "js" || this.ccom.lang == "node") { let arg_str = this.args.join(" "); this.proc.stdin.write
           (`let arg_str = "${arg_str}"; let args = arg_str.split(" "); let input = arg_str.replace(/.${this.ccom.name} /, ''); let user = "${this.who['nick']}"; ${this.ccom.code}`);
@@ -235,7 +235,7 @@ class Bot extends irc.Client {
     fetch_ccom_db(user, launch){
         let bot = this;
         if(user == undefined) {
-            console.log("started fetching ccoms")
+            console.log("fetching ccoms (globally)")
             request('GET', 'http://192.168.49.105:42069/ccoms').done(function(res) {
                 ccdb = JSON.parse(res.getBody());
                 let ccoms_list = "";
@@ -245,7 +245,7 @@ class Bot extends irc.Client {
                 if(!launch || launch == undefined) bot.say(channels[0], ccoms_list);
             });
         } else {
-            console.log("started fetching user ccoms")
+            console.log(`fetching ccoms (${user})`)
             request('GET', `http://192.168.49.105:42069/ccoms/author/${user}`).done(function(res) {
                 author_ccoms = JSON.parse(res.getBody());
                 let ccoms_list = "";
@@ -263,10 +263,11 @@ class Bot extends irc.Client {
     }
 
     parse_ccom_action(message, who) {
-        if((Date.now() - last_ccom_time) / 1000 < 1) {
+        if((Date.now() - last_ccom_time) / 1000 < 1.5) {
            this.say(channels[0], "Lay off the blow, you're out of control.");
            return;
         }
+        last_ccom_time = Date.now();
         let args = message.split(" ");
         let nick = who['nick'];
         let host = who['host'];
@@ -347,7 +348,7 @@ class Bot extends irc.Client {
     start_listener() {
         this.addListener('message', function (from, to, message) {
             console.log(from + ' => ' + to + ': ' + message);
-            if(message.match("^.")) {
+            if(message.match("^[.]")) {
                 this.whois(from, function(info) {
                     this.parse_ccom_action(message, info);
                 });
