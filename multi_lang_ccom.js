@@ -3,13 +3,13 @@
 const config = require('config');
 const irc = require('irc');
 const request = require('then-request');
-const server = 'chat.freenode.net';
-const channels = ['##barkbarkbark'];
-const nick = 'testytesterbot';
+const server = config.get('irc.server');
+const channels = config.get('irc.channels');
+const nick = config.get('irc.nick');
 const admins = config.get("admin.admins");
-const debug = false;
-const secure = true;
-const port = 6697;
+const debug = config.get('irc.debug');
+const secure = config.get('irc.secure');
+const port = config.get('irc.port');
 const accepted_langs = ['python', 'node', 'php', 'c', 'bash', 'perl'];
 const child_process = require('child_process');
 const jwt = require('jsonwebtoken');
@@ -108,7 +108,7 @@ class MultiLangCCOM {
     edit_ccom(bot) {
         let name = this.name;
         let user = this.user;
-        request('PUT', `http://192.168.49.105:42069/ccoms/name/${this.name}`, {json: {'lang': this.lang, 'name': this.name, 'author_nick':
+        request('PUT', `${config.get('mongodb.db_address')}/ccoms/name/${this.name}`, {json: {'lang': this.lang, 'name': this.name, 'author_nick':
         this.nick, 'author_host': this.host, 'code': this.code, "created_date": this.time }, headers:{'authorization': this.token}}).getBody('utf8')
         .then(JSON.parse).done(function (res) {
             console.log(`${user} successfully edited ${name}!`);
@@ -119,7 +119,7 @@ class MultiLangCCOM {
     post_ccom(bot) {
         let name = this.name;
         let user = this.user;
-        request('POST', 'http://192.168.49.105:42069/ccoms', {json: {'lang': this.lang, 'name': this.name, 'author_nick':
+        request('POST', `${config.get('mongodb.db_address')}/ccoms`, {json: {'lang': this.lang, 'name': this.name, 'author_nick':
         this.nick, 'author_host': this.host, 'code': this.code, "created_date": this.time }, headers:{'authorization': this.token}}).getBody('utf8')
         .then(JSON.parse).done(function (res) {
             console.log(`response code: ${res.code}`);
@@ -131,7 +131,7 @@ class MultiLangCCOM {
     remove_ccom() {
         let name = this.name;
         let user = this.nick;
-        request('DELETE', `http://192.168.49.105:42069/ccoms/name/${this.name}`,
+        request('DELETE', `${config.get('mongodb.db_address')}/ccoms/name/${this.name}`,
         {headers:{"authorization": this.token}}).done(function (res) {
             console.log(`${user} successfully removed ${name}!`);
         });
@@ -237,7 +237,7 @@ class Bot extends irc.Client {
         let bot = this;
         if(user == undefined) {
             console.log("fetching ccoms (globally)")
-            request('GET', 'http://192.168.49.105:42069/ccoms').done(function(res) {
+            request('GET', `${config.get('mongodb.db_address')}/ccoms`).done(function(res) {
                 ccdb = JSON.parse(res.getBody());
                 let ccoms_list = "";
                 for(let i = 0; i < ccdb.length; i++) {
@@ -247,7 +247,7 @@ class Bot extends irc.Client {
             });
         } else {
             console.log(`fetching ccoms (${user})`)
-            request('GET', `http://192.168.49.105:42069/ccoms/author/${user}`).done(function(res) {
+            request('GET', `${config.get('mongodb.db_address')}/ccoms/author/${user}`).done(function(res) {
                 author_ccoms = JSON.parse(res.getBody());
                 let ccoms_list = "";
                 for(let i = 0; i < author_ccoms.length; i++) {
@@ -321,7 +321,7 @@ class Bot extends irc.Client {
                     return;
                 }
                 let bot = this;
-                request('GET', `http://192.168.49.105:42069/ccoms/name/${args[2]}`).done(function(res) {
+                request('GET', `${config.get('mongodb.db_address')}/ccoms/name/${args[2]}`).done(function(res) {
                     let ccom = JSON.parse(res.getBody());
                     if(ccom == undefined || ccom.length == 0) {
                         bot.say(channels[0], `no ccom named ${args[2]} found`);

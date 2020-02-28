@@ -1,0 +1,22 @@
+{
+    "irc": {
+        "server": "irc.server.net",
+        "secure": true,
+        "port": 6697,
+        "channels": ["#somechannel"],
+        "nick": "yourbot",
+        "debug": false
+    },
+    "admin": {
+        "admins": ["somehost/somemask/supercool"]
+    },
+
+    "mongodb": {
+        "db_address": "http://yourdbaddresshere:42069",
+        "db_user": "dbuser",
+        "db_pwd": "dbpassword"
+    },
+    "token": {
+        "token_secret": "asecretfortokengeneration"
+    }
+}
