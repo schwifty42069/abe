@@ -37,10 +37,14 @@ class MultiLangCCOM {
             "time": this.time,
         }))
         this.banned_patterns = {
-            "python": ["import os", "import subprocess", "import ctypes", "__import__", "importlib", "from os", "from subprocess", "from ctypes", "chr", "0001", "\u0001"],
+            "python": ["import os", "import subprocess", "import ctypes", "__import__", "importlib", "from os",
+                       "from subprocess", "from ctypes", "chr", "0001", "\u0001"],
             "perl": ["exec", "system", "`", "fork", "kill", "chr", "0001", "\u0001"],
-            "node": ["child_process", "exec", "spawn", "shelljs", "fromCharCode", "cluster", "fs", "__dirname__", "__filename", "0001", "\u0001"],
-            "bash": [">", "cd", "ls", "pwd", "mkdir", "001", "\u0001", "\\|"]
+            "node": ["child_process", "exec", "spawn", "shelljs", "fromCharCode", "cluster", "fs", "__dirname__",
+                     "__filename", "0001", "\u0001"],
+            "bash": [">", "&", [/\Wcd\W/g, "cd"], [/\Wls\W/g, "ls"], "pwd", "mkdir", "001", "\u0001", "\\|", "id", "\\$\\(", "`", "sdcard",
+                     "termux", "while true", [/\Wnc\W/g, "nc"], "netcat", "ifconfig", "iwconfig", [/\Wip\W/g, "ip"], "netstat",
+                      [/\Wcat\W/g, "cat"]]
         };
     }
 
@@ -61,10 +65,16 @@ class MultiLangCCOM {
                 for(let i = 0; i < 6; i++) {
                     bot.say(channels[0], lines[i]);
                 }
-            } else {
+            } else if(action == "edit") {
                 this.edit_ccom(bot);
                 bot.say(channels[0], "successfully edited ccom!");
                 return;
+            } else {
+                result = result["stdout"].replace( /\r/g, '\n');
+                let lines = result.split("\n");
+                for(let i = 0; i < 6; i++) {
+                    bot.say(channels[0], lines[i]);
+                }
             }
         } else {
             result = result["stderr"];
@@ -82,12 +92,19 @@ class MultiLangCCOM {
             bot.say(channels[0], `${this.lang} is not a supported language for ccoms!`);
             return;
         }
-        if(action == "add" || action == "edit") {
+        if(action == "add" || action == "edit" || action == "test") {
             console.log(`checking ${this.code} for banned pattern..`)
             for(let i in this.banned_patterns[this.lang]) {
-                if(this.code.match(this.banned_patterns[this.lang][i])) {
-                    bot.say(channels[0], `Use of ${this.banned_patterns[this.lang][i]} is banned for security reasons!`);
-                    return;
+                if(typeof(this.banned_patterns[this.lang][i]) == 'object') {
+                    if(this.code.match(this.banned_patterns[this.lang][i][0])) {
+                        bot.say(channels[0], `Use of ${this.banned_patterns[this.lang][i][1]} is banned for security reasons!`);
+                        return;
+                    }
+                } else {
+                    if(this.code.match(this.banned_patterns[this.lang][i])) {
+                        bot.say(channels[0], `Use of ${this.banned_patterns[this.lang][i]} is banned for security reasons!`);
+                        return;
+                    }
                 }
             }
         } else if(action == "del") {
@@ -98,7 +115,7 @@ class MultiLangCCOM {
         }
         if(who == undefined) who = {"nick": "test"};
         if(args == undefined) args = ["1", "2", "3", "4", "5"];
-        let spawner = new Spawner(this.lang, null, this, who, args);
+        let spawner = new Spawner(this.lang, null, this, who, args, action);
         spawner.spawn((evt, err) => {
             this.execute_result(spawner.get_formatted_output(), action, bot);
         });
@@ -138,8 +155,38 @@ class MultiLangCCOM {
     }
 }
 
+class Runtime {
+    constructor(ccom, args, who, action) {
+        this.ccom = ccom;
+        this.args = args;
+        this.who = who;
+        this.action = action;
+    }
+
+    create_runtime() {
+        if(this.args.length < 2) {
+            this.args.push("test2");
+        }
+        let arg_str = this.args.join(" ");
+        if(this.action == "test") arg_str = "";
+        if(this.ccom.lang == "python") {
+            return(`arg_str = "${arg_str}"; args = arg_str.split(" "); user = "${this.who['nick']}"; ${this.ccom.code}`);
+        }
+        if(this.ccom.lang == "perl") {
+            return(`$arg_str = "${arg_str}"; $arg_str =~ s/.${this.ccom.name} //; @args = split(" ", $arg_str); $user = "${this.who['nick']}"; ${this.ccom.code}`);
+        }
+        if(this.ccom.lang == "js" || this.ccom.lang == "node") {
+            return(`let arg_str = "${arg_str}"; let args = arg_str.split(" ");
+                    let input = arg_str.replace(/.${this.ccom.name} /, ''); let user = "${this.who['nick']}"; ${this.ccom.code}`);
+        }
+        if(this.ccom.lang == "bash") {
+            return(`user=${this.who['nick']}; arg_str="${arg_str}"; IFS=' '; args=(\${arg_str// / }); unset IFS; ${this.ccom.code}`);
+        }
+    }
+}
+
 class Spawner {
-    constructor(exe, exe_args, ccom, who, args) {
+    constructor(exe, exe_args, ccom, who, args, action) {
         this.exe = exe;
         if(this.exe == "js") this.exe = "node"
         this.exe_args = exe_args;
@@ -149,6 +196,7 @@ class Spawner {
         this.stderr = "";
         this.who = who;
         this.args = args;
+        this.action = action;
     }
     spawn = (callback) => {
         this.callback = (evt, err) => {
@@ -171,27 +219,12 @@ class Spawner {
     	this.proc.on('close', this.on_close);
     	this.proc.on('error', this.on_error);
     	this.proc.stdin.on('error', this.on_error);
-        if(this.ccom.lang == "python") {
-            if(this.args.length < 2) {
-                this.args.push("test2");
-            }
-            let arg_str = this.args.join(" "); this.proc.stdin.write(`arg_str = "${arg_str}"; args = arg_str.split(" "); user = "${this.who['nick']}"; ${this.ccom.code}`);
-        }
-        if(this.ccom.lang == "perl") {
-            let arg_str = this.args.join(" ");
-            this.proc.stdin.write(`$arg_str = "${arg_str}"; $arg_str =~ s/.${this.ccom.name} //; @args = split(" ", $arg_str); $user = "${this.who['nick']}"; ${this.ccom.code}`);
-        }
-        if(this.ccom.lang == "js" || this.ccom.lang == "node") { let arg_str = this.args.join(" "); this.proc.stdin.write
-          (`let arg_str = "${arg_str}"; let args = arg_str.split(" "); let input = arg_str.replace(/.${this.ccom.name} /, ''); let user = "${this.who['nick']}"; ${this.ccom.code}`);
-        }
-        if(this.ccom.lang == "bash") {
-            let arg_str = this.args.join(" ");
-            this.proc.stdin.write(`user=${this.who['nick']}; arg_str="${arg_str}"; IFS=' '; args=(\${arg_str// / }); unset IFS; ${this.ccom.code}`);
-        }
+        let rt = new Runtime(this.ccom, this.args, this.who, this.action);
+        this.proc.stdin.write(rt.create_runtime());
     	this.proc.stdin.end();
     }
     on_stdout = (data) => {
-		this.stdout = data.toString();
+		this.stdout += data.toString();
 	}
 	on_stderr = (data) => {
 		this.stderr = data.toString();
@@ -333,8 +366,16 @@ class Bot extends irc.Client {
                 });
                 return;
             } else if(args[1] == "help") {
-                this.say(channels[0], "Usage: .mlcc add|remove|list|view\nAdd: .mlcc add ccom_name ccom_language ccom_code" +
-                                      "\nRemove: .mlcc remove ccom_name\nList: .mlcc list\nView: .mlcc view ccom_name");
+                this.say(channels[0], "Usage: .mlcc add|remove|list|view|test\nAdd: .mlcc add ccom_name ccom_language ccom_code" +
+                                      "\nRemove: .mlcc remove ccom_name\nList: .mlcc list\nView: .mlcc view ccom_name" +
+                                      "\nTest: .mlcc test ccom_language ccom_code");
+            } else if(args[1] == "test") {
+                let code = "";
+                let name = "test";
+                let lang = args[2];
+                for(let i = 3; i < args.length; i++) code += `${args[i]} `
+                let mlcc = new MultiLangCCOM(lang, name, nick, host, code, created_date).execute_ccom("test", this, who, args);
+
             }
         } else {
             for(let i = 0; i < ccdb.length; i++) {
