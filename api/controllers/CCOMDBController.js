@@ -6,7 +6,6 @@ const mongoose = require('mongoose'),
 ml_ccom = mongoose.model('CCOMDB');
 const jwt = require('jsonwebtoken');
 
-// sorry duckgoose, used a synchronous call for jwt.verify, at least for now
 const verify = (req, res, next) => {
     try {
         jwt.verify(req.headers.authorization, token_secret);

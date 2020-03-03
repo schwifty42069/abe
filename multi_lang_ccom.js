@@ -37,14 +37,16 @@ class MultiLangCCOM {
             "time": this.time,
         }))
         this.banned_patterns = {
-            "python": ["import os", "import subprocess", "import ctypes", "__import__", "importlib", "from os",
-                       "from subprocess", "from ctypes", "chr", "0001", "\u0001"],
-            "perl": ["exec", "system", "`", "fork", "kill", "chr", "0001", "\u0001"],
+            "python": ["import os", "import subprocess", "import ctypes", "__import__", "importlib", "from os", [/exec\(/g, "exec"],
+                       "from subprocess", "from ctypes", "chr", "globals", "pwd", ".system", "locals", "0001", "\u0001",
+                       "vars()"],
+            "perl": ["exec", "system", "`", "fork", "kill", "chr", "install", "0001", "\u0001"],
             "node": ["child_process", "exec", "spawn", "shelljs", "fromCharCode", "cluster", "fs", "__dirname__",
                      "__filename", "0001", "\u0001"],
-            "bash": [">", "&", [/\Wcd\W/g, "cd"], [/\Wls\W/g, "ls"], "pwd", "mkdir", "001", "\u0001", "\\|", "id", "\\$\\(", "`", "sdcard",
-                     "termux", "while true", [/\Wnc\W/g, "nc"], "netcat", "ifconfig", "iwconfig", [/\Wip\W/g, "ip"], "netstat",
-                      [/\Wcat\W/g, "cat"]]
+            "bash": [[/\W>\W/g, ">"], "&", [/\Wcd\W/g, "cd"], [/\Wls\W/g, "ls"], "TZ", "pwd", "mkdir", "001", "\u0001", "\\|", [/\Wid\W/g, "id"],
+                     "\\$\\(", "`", "sdcard", "termux", "while true", [/\Wnc\W/g, "nc"], "netcat", "ifconfig", "iwconfig",
+                     [/\Wip\W/g, "ip"], "netstat", [/\Wcat\W/g, "cat"], "/system", "/data", "/etc", [/\Wam\W/g, "am"]],
+            "except": [">.<"]
         };
     }
 
@@ -87,6 +89,23 @@ class MultiLangCCOM {
         }
     }
 
+    match_banned_pattern(bot) {
+        for(let i in this.banned_patterns[this.lang]) {
+            if(typeof(this.banned_patterns[this.lang][i]) == 'object') {
+                if(this.code.match(this.banned_patterns[this.lang][i][0]) && !this.code.includes(this.banned_patterns["except"][0])) {
+                    bot.say(channels[0], `Use of ${this.banned_patterns[this.lang][i][1]} is banned for security reasons!`);
+                    return true;
+                }
+            } else {
+                if(this.code.match(this.banned_patterns[this.lang][i])) {
+                    bot.say(channels[0], `Use of ${this.banned_patterns[this.lang][i]} is banned for security reasons!`);
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     execute_ccom(action, bot, who, args) {
         if(!accepted_langs.includes(this.lang)) {
             bot.say(channels[0], `${this.lang} is not a supported language for ccoms!`);
@@ -94,19 +113,7 @@ class MultiLangCCOM {
         }
         if(action == "add" || action == "edit" || action == "test") {
             console.log(`checking ${this.code} for banned pattern..`)
-            for(let i in this.banned_patterns[this.lang]) {
-                if(typeof(this.banned_patterns[this.lang][i]) == 'object') {
-                    if(this.code.match(this.banned_patterns[this.lang][i][0])) {
-                        bot.say(channels[0], `Use of ${this.banned_patterns[this.lang][i][1]} is banned for security reasons!`);
-                        return;
-                    }
-                } else {
-                    if(this.code.match(this.banned_patterns[this.lang][i])) {
-                        bot.say(channels[0], `Use of ${this.banned_patterns[this.lang][i]} is banned for security reasons!`);
-                        return;
-                    }
-                }
-            }
+            if(this.match_banned_pattern(bot)) return;
         } else if(action == "del") {
             this.remove_ccom(this.user);
             bot.say(channels[0], "successfully removed ccom!");
@@ -115,7 +122,7 @@ class MultiLangCCOM {
         }
         if(who == undefined) who = {"nick": "test"};
         if(args == undefined) args = ["1", "2", "3", "4", "5"];
-        let spawner = new Spawner(this.lang, null, this, who, args, action);
+        let spawner = new Spawner(this.lang, null, this, who, args, action, bot);
         spawner.spawn((evt, err) => {
             this.execute_result(spawner.get_formatted_output(), action, bot);
         });
@@ -129,7 +136,7 @@ class MultiLangCCOM {
         this.nick, 'author_host': this.host, 'code': this.code, "created_date": this.time }, headers:{'authorization': this.token}}).getBody('utf8')
         .then(JSON.parse).done(function (res) {
             console.log(`${user} successfully edited ${name}!`);
-            bot.fetch_ccom_db(undefined, true);
+            bot.fetch_ccom_db(undefined, true, undefined);
         });
     }
 
@@ -141,7 +148,7 @@ class MultiLangCCOM {
         .then(JSON.parse).done(function (res) {
             console.log(`response code: ${res.code}`);
             console.log(`${user} successfully added ${name}!`);
-            bot.fetch_ccom_db(undefined, true);
+            bot.fetch_ccom_db(undefined, true, undefined);
         });
     }
 
@@ -169,8 +176,9 @@ class Runtime {
         }
         let arg_str = this.args.join(" ");
         if(this.action == "test") arg_str = "";
+
         if(this.ccom.lang == "python") {
-            return(`arg_str = "${arg_str}"; args = arg_str.split(" "); user = "${this.who['nick']}"; ${this.ccom.code}`);
+            return(`arg_str = "${arg_str}"; args = arg_str.split(" "); user = "${this.who['nick']}";  exec("exec = None\\n${this.ccom.code.replace(/\"/g, "\\\"")}")`);
         }
         if(this.ccom.lang == "perl") {
             return(`$arg_str = "${arg_str}"; $arg_str =~ s/.${this.ccom.name} //; @args = split(" ", $arg_str); $user = "${this.who['nick']}"; ${this.ccom.code}`);
@@ -263,22 +271,26 @@ class Bot extends irc.Client {
         this.secure = secure;
         this.debug = debug;
         this.start_listener();
-        this.fetch_ccom_db(undefined, true);
+        this.fetch_ccom_db(undefined, true, undefined);
     }
 
-    fetch_ccom_db(user, launch){
+    fetch_ccom_db(user, launch, who){
         let bot = this;
-        if(user == undefined) {
-            console.log("fetching ccoms (globally)")
-            request('GET', `${config.get('mongodb.db_address')}/ccoms`).done(function(res) {
-                ccdb = JSON.parse(res.getBody());
+        if(user == undefined && who != undefined) {
+            console.log(`fetching ccoms (${who['nick']})`)
+            request('GET', `${config.get('mongodb.db_address')}/ccoms/author/${who['nick']}`).done(function(res) {
+                author_ccoms = JSON.parse(res.getBody());
                 let ccoms_list = "";
-                for(let i = 0; i < ccdb.length; i++) {
-                    ccoms_list += `${ccdb[i]['name']} `
+                for(let i = 0; i < author_ccoms.length; i++) {
+                    ccoms_list += `${author_ccoms[i]['name']} `
                 }
-                if(!launch || launch == undefined) bot.say(channels[0], ccoms_list);
+                if(ccoms_list.length == 0) {
+                    bot.say(channels[0], `no ccoms found for ${user}`);
+                } else {
+                    bot.say(channels[0], ccoms_list);
+                }
             });
-        } else {
+        } else if(user != undefined && user != "all" && who == undefined) {
             console.log(`fetching ccoms (${user})`)
             request('GET', `${config.get('mongodb.db_address')}/ccoms/author/${user}`).done(function(res) {
                 author_ccoms = JSON.parse(res.getBody());
@@ -292,9 +304,39 @@ class Bot extends irc.Client {
                     bot.say(channels[0], ccoms_list);
                 }
             });
+        } else if (user == "all") {
+            console.log(`fetching ccoms (${user})`)
+            request('GET', `${config.get('mongodb.db_address')}/ccoms`).done(function(res) {
+                author_ccoms = JSON.parse(res.getBody());
+                let ccoms_list = "";
+                for(let i = 0; i < author_ccoms.length; i++) {
+                    ccoms_list += `${author_ccoms[i]['name']} `
+                }
+                if(ccoms_list.length == 0) {
+                    bot.say(channels[0], `no ccoms found for ${user}`);
+                } else {
+                    bot.say(channels[0], ccoms_list);
+                }
+            });
+        } else {
+            console.log(`fetching ccoms (globally)`)
+            request('GET', `${config.get('mongodb.db_address')}/ccoms`).done(function(res) {
+                ccdb = JSON.parse(res.getBody());
+                let ccoms_list = "";
+                for(let i = 0; i < ccdb.length; i++) {
+                    ccoms_list += `${ccdb[i]['name']} `
+                }
+                if(!launch || launch == undefined) bot.say(channels[0], ccoms_list);
+            });
         }
         author_ccoms = {};
     }
+
+    build_ccom(lang, name, nick, host, code, created_date) {
+        return new MultiLangCCOM(lang, name, nick, host, code, created_date);
+
+    }
+
 
     parse_ccom_action(message, who) {
         if((Date.now() - last_ccom_time) / 1000 < 1.5) {
@@ -308,23 +350,37 @@ class Bot extends irc.Client {
         let created_date = new Date().toString();
         if(args[0] == ".mlcc") {
             if(args[1] == "add") {
+                let action = "add";
                 let code = "";
                 let name = args[2];
                 let lang = args[3];
                 for(let i = 4; i < args.length; i++) code += `${args[i]} `;
-                let mlcc = new MultiLangCCOM(lang, name, nick, host, code, created_date);
                 for(let i = 0; i < ccdb.length; i++) {
                     if(ccdb[i]['name'] == args[2]) {
                         if(ccdb[i]['author_host'] != host && !admins.includes(host)) {
                             this.say(channels[0], "you may not edit a ccom you didn't add!");
                             return;
                         }
-                        mlcc.execute_ccom("edit", this, who)
-                        return;
+                        action = "edit";
                     }
                 }
-                mlcc.execute_ccom("add", this);
-
+                if(code.match("^https://pastebin.com/raw/")) {
+                    let bot = this;
+                    request('GET', code).done(function(res, err) {
+                        try {
+                            let mlcc = new MultiLangCCOM(lang, name, nick, host, res.getBody().toString(), created_date)
+                            console.log(mlcc.code);
+                            if(!mlcc.match_banned_pattern()) {
+                                mlcc.execute_ccom(action, bot)
+                            }
+                        } catch(err) {
+                            console.log(`Error:\n\n${err.message}`)
+                        }
+                    });
+                    return;
+                }
+                let mlcc = new MultiLangCCOM(lang, name, nick, host, code, created_date)
+                mlcc.execute_ccom(action, this);
             } else if(args[1] == "remove") {
                 let name = args[2];
                 for(let i = 0; i < ccdb.length; i++) {
@@ -342,10 +398,10 @@ class Bot extends irc.Client {
                 return;
             } else if(args[1] == "list") {
                 if(args[2] == undefined) {
-                    this.fetch_ccom_db(undefined, false);
+                    this.fetch_ccom_db(undefined, false, who);
                     return;
                 } else {
-                    this.fetch_ccom_db(args[2], false);
+                    this.fetch_ccom_db(args[2], false, undefined);
                     return;
                 }
             } else if(args[1] == "view") {
@@ -375,7 +431,6 @@ class Bot extends irc.Client {
                 let lang = args[2];
                 for(let i = 3; i < args.length; i++) code += `${args[i]} `
                 let mlcc = new MultiLangCCOM(lang, name, nick, host, code, created_date).execute_ccom("test", this, who, args);
-
             }
         } else {
             for(let i = 0; i < ccdb.length; i++) {
@@ -390,10 +445,16 @@ class Bot extends irc.Client {
     start_listener() {
         this.addListener('message', function (from, to, message) {
             console.log(from + ' => ' + to + ': ' + message);
-            if(message.match("^[.]")) {
-                this.whois(from, function(info) {
-                    this.parse_ccom_action(message, info);
-                });
+            if(to == channels[0]) {
+                if(from != "testytesterbot" && from != "Bark") {
+                    if(message.match("^[.]")) {
+                        this.whois(from, function(info) {
+                            this.parse_ccom_action(message, info);
+                        });
+                    }
+                }
+            } else if(to == "testytesterbot") {
+                this.say(channels[0], `${from}, no privmsg shenanigans!`)
             }
         });
     }
