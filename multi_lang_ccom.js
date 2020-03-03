@@ -332,12 +332,6 @@ class Bot extends irc.Client {
         author_ccoms = {};
     }
 
-    build_ccom(lang, name, nick, host, code, created_date) {
-        return new MultiLangCCOM(lang, name, nick, host, code, created_date);
-
-    }
-
-
     parse_ccom_action(message, who) {
         if((Date.now() - last_ccom_time) / 1000 < 1.5) {
            this.say(channels[0], "Lay off the blow, you're out of control.");
