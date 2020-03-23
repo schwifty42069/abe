@@ -79,7 +79,7 @@ class MultiLangCCOM {
                 }
             }
         } else {
-            result = result["stderr"];
+            result = result["stderr"].replace( /\r/g, '\n');
             let lines = result.split("\n");
             bot.say(channels[0], "The following error occurred:\n");
             for(let i = 0; i < 6; i++) {
@@ -97,7 +97,7 @@ class MultiLangCCOM {
                     return true;
                 }
             } else {
-                if(this.code.match(this.banned_patterns[this.lang][i])) {
+                if(this.code.match(this.banned_patterns[this.lang][i]) && !this.name == "rogex2str" && !this.name == "str2rogex") {
                     bot.say(channels[0], `Use of ${this.banned_patterns[this.lang][i]} is banned for security reasons!`);
                     return true;
                 }
@@ -178,7 +178,7 @@ class Runtime {
         if(this.action == "test") arg_str = "";
 
         if(this.ccom.lang == "python") {
-            return(`arg_str = "${arg_str}"; args = arg_str.split(" "); user = "${this.who['nick']}";  exec("exec = None\\n${this.ccom.code.replace(/\"/g, "\\\"")}")`);
+            return(`arg_str = "${arg_str}"; args = arg_str.split(" "); arg_str = arg_str.replace(".${this.ccom.name} ", ""); user = "${this.who['nick']}";  exec("exec = None\\n${this.ccom.code.replace(/\"/g, "\\\"")}")`);
         }
         if(this.ccom.lang == "perl") {
             return(`$arg_str = "${arg_str}"; $arg_str =~ s/.${this.ccom.name} //; @args = split(" ", $arg_str); $user = "${this.who['nick']}"; ${this.ccom.code}`);
@@ -194,10 +194,11 @@ class Runtime {
 }
 
 class Spawner {
-    constructor(exe, exe_args, ccom, who, args, action) {
+    constructor(exe, exe_args, ccom, who, args, action, bot) {
         this.exe = exe;
-        if(this.exe == "js") this.exe = "node"
         this.exe_args = exe_args;
+        if(this.exe == "js") this.exe = "node";
+        if(this.exe == "python") { this.exe = "python"; this.exe_args = ["-u"]; }
         this.ccom = ccom;
         this.closed = false;
         this.stdout = "";
@@ -205,6 +206,8 @@ class Spawner {
         this.who = who;
         this.args = args;
         this.action = action;
+        this.bot = bot;
+        this.line_count = 0;
     }
     spawn = (callback) => {
         this.callback = (evt, err) => {
@@ -232,8 +235,27 @@ class Spawner {
     	this.proc.stdin.end();
     }
     on_stdout = (data) => {
-		this.stdout += data.toString();
-	}
+        let lines = data.toString().split("\n");
+        if(lines[lines.length - 1] == "") lines.pop();
+        if(this.line_count < 6) {
+            console.log(lines);
+            if(lines.length > 6) {
+                console.log("line len > 6");
+                for(let i = this.line_count; i < 6; i++) {
+                    this.bot.say(channels[0], lines[i].replace(/\r/g, '\n'));
+                    this.line_count++;
+                }
+                this.proc.kill();
+                return;
+            } else {
+                this.bot.say(channels[0], data.toString().replace(/\r/g, '\n'));
+            }
+        }
+        this.line_count += lines.length;
+        if(this.line_count >= 6) {
+            this.proc.kill();
+        }
+    }
 	on_stderr = (data) => {
 		this.stderr = data.toString();
 	}
@@ -274,6 +296,7 @@ class Bot extends irc.Client {
         this.fetch_ccom_db(undefined, true, undefined);
     }
 
+    // todo: remove unnecessary repetition
     fetch_ccom_db(user, launch, who){
         let bot = this;
         if(user == undefined && who != undefined) {
@@ -339,6 +362,7 @@ class Bot extends irc.Client {
         }
         last_ccom_time = Date.now();
         let args = message.split(" ");
+        if(args[3] == "bash") { this.say(channels[0], "Bash is under construction at this time! :("); return; };
         let nick = who['nick'];
         let host = who['host'];
         let created_date = new Date().toString();
@@ -348,6 +372,7 @@ class Bot extends irc.Client {
                 let code = "";
                 let name = args[2];
                 let lang = args[3];
+                if(lang == "bash") { this.say(channels[0], "Bash is under construction at this time! :("); return; };
                 for(let i = 4; i < args.length; i++) code += `${args[i]} `;
                 for(let i = 0; i < ccdb.length; i++) {
                     if(ccdb[i]['name'] == args[2]) {
@@ -423,6 +448,7 @@ class Bot extends irc.Client {
                 let code = "";
                 let name = "test";
                 let lang = args[2];
+                if(lang == "bash") { this.say(channels[0], "Bash is under construction at this time! :("); return; };
                 for(let i = 3; i < args.length; i++) code += `${args[i]} `
                 let mlcc = new MultiLangCCOM(lang, name, nick, host, code, created_date).execute_ccom("test", this, who, args);
             }
